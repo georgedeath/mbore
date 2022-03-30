@@ -1,0 +1,17 @@
+# Byte-compiled / optimized / DLL files
+__pycache__
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Exclude machine-specific vs code settings
+.vscode
+
+# results files -- too big for github
+final_results/
+processed_results/
+results*/
+*.zip
+
+# ignore work that didn't make it into the final paper
+_unused_in_final_paper/
