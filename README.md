@@ -4,17 +4,22 @@ This repository contains the Python3 code for the `MBORE` method presented in:
 
 > George De Ath, Tinkle Chugh, and Alma A. M. Rahat. 2022. MBORE: Multi-objective Bayesian Optimisation by Density-Ratio Estimation. In Genetic and Evolutionary Computation Conference (GECCO ’22), July 9–13, 2022, Boston, MA, USA. ACM, New York, NY, USA, 10 pages.
 <br/>> **Paper:** <https://doi.org/10.1145/3512290.3528769> (to appear)
-<br/>> **Preprint:** (to upload)
+<br/>> **Preprint:** <https://arxiv.org/abs/2203.16912>
+<br/>> **Optimisation results:** <https://doi.org/10.24378/exe.3943> (13 GB)
 
 The repository also contains all training data used for the initialisation of
 the optimisation runs carried out, as well as Jupyter notebooks to generate the
 figures and tables in the paper and its supplement are also included.
-Due to GitHub space constraints,
-optimisation results cannot be included in the repository. However, they have
-been hosted externally and can be downloaded [here (13 GB)](INCLUDE) -- the
-zipped folders must be extracted to the repository folder.
-
-- TODO: Include above link.
+Due to GitHub space constraints, the optimisation results cannot be included in
+the repository. However, they have been hosted externally and can be downloaded
+optimisation results link above. Each zip file must be extracted to a folder
+with the same name as the zip file, e.g., the contents of `final_results.zip`
+must be extracted a folder named `final_results` in the repository folder. Each
+zip file prefixed with `results_` contains results for the named test problems,
+and `processed_results` and `final_results` contain combined results that
+include hypervolume and IGD+ calculations, and statistical test results
+respectively. Only these latter two files need to be downloaded to reproduce
+the plots created in the notebooks discussed below.
 
 ## Citation
 
