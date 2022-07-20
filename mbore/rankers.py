@@ -1,7 +1,7 @@
 import numpy as np
 import pygmo as pg
 from pymoo.factory import get_reference_directions
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 
 class BaseRanker:
@@ -67,9 +67,7 @@ class HypIRanker(BaseRanker):
         # calculate the volume of the hyper-rectangle, with edges spanning
         # from each element of the shell to the reference points, by simply
         # taking the product of its edge lengths.
-        hypi[last_shell] = np.prod(
-            self.ref[np.newaxis, :] - F[last_shell], axis=1
-        )
+        hypi[last_shell] = np.prod(self.ref[np.newaxis, :] - F[last_shell], axis=1)
 
         return hypi
 
@@ -99,9 +97,11 @@ class HypervolumeContributionRanker(BaseRanker):
         for shell_idx in range(len(ndf) - 1, -1, -1):
             shell = ndf[shell_idx]
 
+            hv_class = pg.core.hypervolume(F[shell])
+
             # first, calculate the exclusive hypervolume for each shell
             # (in reverse order), and add it to the current hypervolume value
-            hvc[shell] += pg.core.hypervolume(F[shell]).contributions(self.ref)
+            hvc[shell] += hv_class.contributions(self.ref)
 
             # then, if we're not dealing with the last shell, add the maximum
             # of this shell's contributions (plus and prev added contributions)
@@ -140,14 +140,14 @@ class ParEGORanker(BaseRanker):
         self.n_ref = self._number_of_ref_vectors[n_obj]
 
         # generate the reference vectors once
-        self.ref_vectors = get_reference_directions(
-            "energy", n_obj, self.n_ref
-        )
+        self.ref_vectors = get_reference_directions("energy", n_obj, self.n_ref)
 
         # Tchebycheff coefficient -- from ParEGO paper
         self.rho = 0.05
 
-    def _scalarize(self, F: np.ndarray, ref_vec_idx: int = None) -> np.ndarray:
+    def _scalarize(
+        self, F: np.ndarray, ref_vec_idx: Optional[int] = None
+    ) -> np.ndarray:
         # if we're not given a reference vector index to use (the default!)
         # then select random reference vector
         if ref_vec_idx is None:
@@ -174,7 +174,7 @@ class ParEGORanker(BaseRanker):
         self,
         F: np.ndarray,
         return_scalers: bool = False,
-        ref_vec_idx: int = None,
+        ref_vec_idx: Optional[int] = None,
     ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
 
         scalars = self._scalarize(F, ref_vec_idx)

@@ -11,7 +11,7 @@ from . import (
     schedulers,
     transforms,
 )
-from typing import Callable, Dict, List, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 from pymoo.factory import get_performance_indicator
 from pygmo.core import hypervolume
 from joblib import Parallel, delayed
@@ -20,12 +20,7 @@ from statsmodels.stats.multitest import multipletests
 
 
 def generate_data_filename(
-    problem_name: str,
-    problem_id: int,
-    dim: int,
-    fdim: int,
-    run_no: int,
-    data_dir: str,
+    problem_name: str, problem_id: int, dim: int, fdim: int, run_no: int, data_dir: str,
 ):
 
     fname_components = [
@@ -48,12 +43,13 @@ def generate_save_filename(
     fdim: int,
     run_no: Union[int, None],
     scalarizer: str,  # HypI or DomRank
-    model: Union[str, None],  # XGB or FCNet,
-    model_opt_method: Union[str, None],  # Sobol, CMAES, Grad (for NN)
-    gamma_start: Union[float, None],
-    gamma_end: Union[float, None],
-    gamma_schedule: Union[str, None],
+    model: str,  # XGB or FCNet,
+    model_opt_method: Optional[str],  # Sobol, CMAES, Grad (for NN)
+    gamma_start: Optional[float],
+    gamma_end: Optional[float],
+    gamma_schedule: Optional[str],
     save_dir: str,
+    acq_func: Optional[str] = None,
 ):
     fname_components = [
         f"{problem_name.upper():s}{problem_id:d}",
@@ -62,11 +58,10 @@ def generate_save_filename(
         f"_{run_no:d}" if run_no is not None else "",
         f"_{scalarizer:s}",
         f"_{model:s}",
+        f"_{acq_func:s}" if acq_func is not None else "",
         f"_{model_opt_method:s}",
         f"_g={gamma_start:0.2f}" if gamma_start is not None else "",
-        f"-{gamma_end:0.2f}({gamma_schedule:s})"
-        if gamma_schedule is not None
-        else "",
+        f"-{gamma_end:0.2f}({gamma_schedule:s})" if gamma_schedule is not None else "",
         ".npz",
     ]
     fname = "".join(fname_components)
@@ -134,14 +129,57 @@ def get_scheduler(name: str):
     return names_to_classes[name]
 
 
+def load_classification_data(
+    X: np.ndarray,
+    y: np.ndarray,
+    gamma: float,
+    weight_type: Optional[str],
+    dupe_points: bool = True,
+):
+    # https://github.com/lfbo-ml/lfbo/blob/7d3364dd0eeab5ac2cfcfcb17c02473d89146195/model.py
+    tau = np.quantile(y, q=gamma)
+    z = np.less(y, tau)
+
+    if weight_type == "ei":
+        # split the points into two classes
+        x1, y1, z1 = X[z], y[z], z[z]
+
+        if dupe_points:
+            x0, y0, z0 = X, y, np.zeros_like(z)
+        else:
+            x0, y0, z0 = X[~z], y[~z], np.zeros(np.count_nonzero(~z), dtype="bool")
+
+        w1 = (tau - y)[z]
+        w1 = w1 / np.mean(w1)
+
+        s1 = x1.shape[0]
+        s0 = x0.shape[0]
+
+        w1 = w1 * (s1 + s0) / s1
+        w0 = (1 - z0) * (s1 + s0) / s0
+
+        x = np.concatenate([x1, x0], axis=0)
+        y = np.concatenate([y1, y0], axis=0)
+        z = np.concatenate([z1, z0], axis=0)
+
+        w = np.concatenate([w1, w0], axis=0)
+        w = w / np.mean(w)
+
+        return x, y, z, w, tau
+
+    elif (weight_type == "pi") or (weight_type is None):
+        tau = np.quantile(y, q=gamma)
+        z = np.less(y, tau)
+        w = np.ones_like(z)
+
+        return X, y, z, w, tau
+
+    else:
+        raise ValueError(f"weight_type must be 'ei' or 'pi'/None, given: {weight_type}")
+
+
 def func_to_par(
-    i,
-    results_path,
-    budget,
-    n_expected,
-    ref_point,
-    ideal_point,
-    scaled_indicator_igd,
+    i, results_path, budget, n_expected, ref_point, ideal_point, scaled_indicator_igd,
 ):
     if os.path.exists(results_path):
         with np.load(results_path, allow_pickle=True) as fd:
@@ -162,9 +200,7 @@ def func_to_par(
             igdplus = np.zeros(budget + 1)
 
             sref_point = np.ones_like(ref_point)
-            for idx, j in enumerate(
-                range(n_expected - budget, n_expected + 1)
-            ):
+            for idx, j in enumerate(range(n_expected - budget, n_expected + 1)):
                 sYtrj = sYtr[:j]
 
                 hv[idx] = hypervolume(sYtrj).compute(sref_point)
@@ -191,8 +227,8 @@ def gather_results(
     models_and_optimizers: List[Tuple[str, str]],
     scalarizers: List[str],
     gamma_start: float,
-    gamma_end: Union[float, None] = None,
-    gamma_schedule: Union[str, None] = None,
+    gamma_end: Optional[float] = None,
+    gamma_schedule: Optional[str] = None,
     start_run: int = 1,
     end_run: int = 21,
     budget: int = 300,
@@ -209,9 +245,7 @@ def gather_results(
         * problem_sets.get_number_of_problems(prob_dict)
     )
 
-    with tqdm.auto.tqdm(total=total) as pbar, Parallel(
-        n_jobs=num_jobs
-    ) as parallel:
+    with tqdm.auto.tqdm(total=total) as pbar, Parallel(n_jobs=num_jobs) as parallel:
         for scalarizer in scalarizers:
             for model, model_opt_method in models_and_optimizers:
                 for problem_id in prob_dict:
@@ -219,20 +253,13 @@ def gather_results(
                         for fdim in fdims:
 
                             # get the problem and related info
-                            problem_class = getattr(
-                                problems, problem_name.upper()
-                            )
+                            problem_class = getattr(problems, problem_name.upper())
                             problem = problem_class(problem_id, dim, fdim)
-                            (
-                                ref_point,
-                                ideal_point,
-                            ) = problem.get_reference_points()
+                            (ref_point, ideal_point,) = problem.get_reference_points()
                             pf = problem.get_pareto_front()
 
                             # rescale the pareto front to [0, 1]
-                            spf = (pf - ideal_point) / (
-                                ref_point - ideal_point
-                            )
+                            spf = (pf - ideal_point) / (ref_point - ideal_point)
 
                             # therefore, the indicator function should be also
                             # be defined on [0, 1]
@@ -241,9 +268,8 @@ def gather_results(
                             )
 
                             # storage arrays
-                            n_expected = (
-                                budget
-                                + problem_sets.get_number_of_samples(dim)
+                            n_expected = budget + problem_sets.get_number_of_samples(
+                                dim
                             )
                             Xtrs = np.zeros((n_runs, n_expected, dim))
                             Ytrs = np.zeros((n_runs, n_expected, fdim))

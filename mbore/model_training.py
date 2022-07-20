@@ -3,10 +3,10 @@ from gpytorch.settings import cholesky_jitter
 from . import gp, util
 
 
-def train_classifier(Xtr, labels, method):
+def train_classifier(Xtr, labels, method, weights):
     # get and train the classifier
     clf_class = util.get_classifier(method)
-    clf = clf_class(Xtr, labels)
+    clf = clf_class(Xtr, labels, weights)
     clf.train()
 
     return clf
@@ -23,9 +23,7 @@ def train_gp(
     train_y = torch.reshape(train_y, (-1, 1))
 
     # create, train and optimize the gp, using cholesky jitter to avoid PSD
-    with cholesky_jitter(
-        float=chol_jitter, double=chol_jitter, half=chol_jitter
-    ):
+    with cholesky_jitter(float=chol_jitter, double=chol_jitter, half=chol_jitter):
         model, mll = gp.create_model_and_mll(train_x, train_y)
         gp.train_model_restarts(mll, train_restarts, verbose=verbose)
 

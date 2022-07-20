@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from . import problem_sets
 import numpy as np
 
@@ -11,18 +11,20 @@ def ensure_2d(X):
         X = np.reshape(X, (1, -1))
     elif nd > 2:
         raise ValueError(
-            "Input data must be two-dimensional. Given dimensions: "
-            f"{nd:d} {X.shape}"
+            "Input data must be two-dimensional. Given dimensions: " f"{nd:d} {X.shape}"
         )
     return X
 
 
 class ClassifierBase:
-    def __init__(self, Xtr: np.ndarray, class_labels: np.ndarray):
+    def __init__(
+        self, Xtr: np.ndarray, class_labels: np.ndarray, weights: Optional[np.ndarray]
+    ):
         assert Xtr.shape[0] == class_labels.shape[0]
 
         self.Xtr = Xtr
         self.labels = class_labels
+        self.weights = weights
 
     def train(self) -> None:
         """train the classifier on the data given during initialisation"""
@@ -41,9 +43,10 @@ class XGBoostClassifier(ClassifierBase):
         self,
         Xtr: np.ndarray,
         class_labels: np.ndarray,
+        weights: Optional[np.ndarray],
         xgb_settings: Dict[str, Any] = {},
     ) -> None:
-        super(XGBoostClassifier, self).__init__(Xtr, class_labels)
+        super(XGBoostClassifier, self).__init__(Xtr, class_labels, weights)
 
         # only import xgboost if we're using it
         from xgboost import XGBClassifier
@@ -72,7 +75,7 @@ class XGBoostClassifier(ClassifierBase):
         self.clf = XGBClassifier(**self.xgb_settings)
 
     def train(self):
-        self.clf.fit(self.Xtr, self.labels)
+        self.clf.fit(self.Xtr, self.labels, sample_weight=self.weights)
 
     def predict(self, X):
         X = ensure_2d(X)
@@ -85,6 +88,7 @@ class FCNetClassifier(ClassifierBase):
         self,
         Xtr: np.ndarray,
         class_labels: np.ndarray,
+        weights: Optional[np.ndarray],
         activation: str = "elu",  # BORE paper activation
         layer_size: int = 32,  # BORE paper layer size
         n_layers: int = 2,  # BORE paper number of layers
@@ -92,7 +96,7 @@ class FCNetClassifier(ClassifierBase):
         gradient_steps: int = 100,  # S in BORE paper
         use_batchnorm: bool = False,
     ):
-        super(FCNetClassifier, self).__init__(Xtr, class_labels)
+        super(FCNetClassifier, self).__init__(Xtr, class_labels, weights)
 
         # only import from bore and tensorflow if we're using the model
         from bore.models import MaximizableSequential
@@ -138,6 +142,7 @@ class FCNetClassifier(ClassifierBase):
             batch_size=B,
             verbose=0,
             shuffle=True,
+            sample_weight=self.weights,
         )
 
         if return_history:

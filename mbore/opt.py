@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from . import gp, model_training, problems, transforms, util
 from gpytorch.settings import cholesky_jitter
-from typing import Union
+from typing import Optional, Union
 
 
 def optimize(
@@ -17,7 +17,8 @@ def optimize(
     scalarizer: str,  # HypI or DomRank
     model: str,  # XGB or FCNet,
     model_opt_method: str,  # Sobol, SobolBoltzmann, CMAES, Grad (for NN)
-    gamma_start: Union[float, None],
+    acq_func: Optional[str] = None,
+    gamma_start: float = 1 / 3,
     gamma_end: Union[float, None] = None,
     gamma_schedule: Union[str, None] = None,
     data_dir: str = "data",
@@ -47,24 +48,23 @@ def optimize(
 
     # generate the location at which to save the data
     save_path = util.generate_save_filename(
-        problem_name,
-        problem_id,
-        dim,
-        fdim,
-        run_no,
-        scalarizer,  # HypI or DomRank
-        model,  # XGB or FCNet,
-        model_opt_method,  # Sobol, SobolBoltzmann, CMAES, Grad (for NN)
-        gamma_start,
-        gamma_end,
-        gamma_schedule,
-        save_dir,
+        problem_name=problem_name,
+        problem_id=problem_id,
+        dim=dim,
+        fdim=fdim,
+        run_no=run_no,
+        scalarizer=scalarizer,  # HypI or DomRank
+        model=model,  # XGB or FCNet,
+        model_opt_method=model_opt_method,  # Sobol, SobolBoltzmann, CMAES, Grad (for NN)
+        gamma_start=gamma_start,
+        gamma_end=gamma_end,
+        gamma_schedule=gamma_schedule,
+        save_dir=save_dir,
+        acq_func=acq_func,
     )
 
     # get the gamma scheduler
-    gs_class = util.get_scheduler(
-        "Fixed" if gamma_schedule is None else gamma_schedule
-    )
+    gs_class = util.get_scheduler("Fixed" if gamma_schedule is None else gamma_schedule)
     gamma_scheduler = gs_class(gamma_start, gamma_end, budget)
 
     # timing storage
@@ -91,7 +91,7 @@ def optimize(
     for t in range(starting_t_value + 1, budget + 1):
         gamma = gamma_scheduler(t)
 
-        ranks, scalers = ranker.get_ranks(Ytr, return_scalers=True)
+        _, scalers = ranker.get_ranks(Ytr, return_scalers=True)
 
         # rescale decision vectors to [0, 1] and the associated bounds
         xtransformer = transforms.ZeroOneTransform(Xtr, lb, ub)
@@ -123,14 +123,15 @@ def optimize(
 
         else:
             sXnext = opt_step_clf(
-                ranks=ranks,
                 Xtr=sXtr,
+                y=scalers,
                 lb=slb,
                 ub=sub,
                 model=model,
                 model_opt_method=model_opt_method,
                 gamma=gamma,
                 opt_budget=opt_budget,
+                weight_type=acq_func,
             )
 
         # method over -- get its runtime
@@ -165,25 +166,16 @@ def optimize(
         # print a summary if we're being verbose
         if verbose:
             print(
-                f"Iter: {t:03d}/{budget:03d}",
-                f"Time taken: {total_time:0.2f}s",
+                f"Iter: {t:03d}/{budget:03d}", f"Time taken: {total_time:0.2f}s",
             )
 
 
 def opt_step_clf(
-    ranks, Xtr, lb, ub, model, model_opt_method, gamma, opt_budget,
+    Xtr, y, lb, ub, model, model_opt_method, gamma, opt_budget, weight_type
 ):
-    n_train = Xtr.shape[0]
+    x, y, z, w, _ = util.load_classification_data(Xtr, y, gamma, weight_type)
 
-    # get the indices of the top gamma'th proportion of values
-    n = int(n_train * gamma)
-    best_inds = ranks[:n]
-
-    # assign class labels
-    labels = np.zeros((n_train,))
-    labels[best_inds] = 1
-
-    clf = model_training.train_classifier(Xtr, labels, model)
+    clf = model_training.train_classifier(Xtr=x, labels=z, method=model, weights=w)
 
     # optimise it
     opt_class = util.get_optimizer(model_opt_method)
@@ -218,12 +210,8 @@ def opt_step_GP(
     )
 
     # create, train and optimize the gp, using cholesky jitter to avoid PSD
-    with cholesky_jitter(
-        float=chol_jitter, double=chol_jitter, half=chol_jitter
-    ):
-        Xnext = gp.ei_optimize(
-            model, best_f, problem_bounds, opt_budget, opt_restarts
-        )
+    with cholesky_jitter(float=chol_jitter, double=chol_jitter, half=chol_jitter):
+        Xnext = gp.ei_optimize(model, best_f, problem_bounds, opt_budget, opt_restarts)
 
     return Xnext.numpy().ravel()
 
