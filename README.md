@@ -30,6 +30,7 @@ If you use any part of this code in your work, please cite:
     author = {George {De Ath} and Tinkle Chugh and Alma A. M. Rahat},
     title = {MBORE: Multi-objective Bayesian Optimisation by Density-Ratio Estimation},
     year = {2022},
+    pages = {776–785},
     publisher = {Association for Computing Machinery},
     address = {New York, NY, USA},
     url = {https://doi.org/10.1145/3512290.3528769},
